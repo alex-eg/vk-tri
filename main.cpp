@@ -928,6 +928,8 @@ private:
             drawFrame();
         }
 
+        vkDeviceWaitIdle(device);
+
         glfwDestroyWindow(window);
 
         glfwTerminate();
