@@ -226,8 +226,18 @@ private:
     void initWindow() {
         glfwInit();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+        glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
         window = glfwCreateWindow(800, 600, "Vulkan", nullptr, nullptr);
+
+        glfwSetWindowUserPointer(window, this);
+        glfwSetWindowSizeCallback(window, App::onWindowResized);
+    }
+
+    static void onWindowResized(GLFWwindow *window, int width, int height) {
+        if (width == 0 || height == 0) return;
+
+        App *app = reinterpret_cast<App*>(glfwGetWindowUserPointer(window));
+        app->recreateSwapChain();
     }
 
     void initVulkan() {
@@ -246,6 +256,17 @@ private:
         createSemaphores();
     }
 
+    void recreateSwapChain() {
+        vkDeviceWaitIdle(device);
+
+        createSwapChain();
+        createImageViews();
+        createRenderPass();
+        createGraphicsPipeline();
+        createFramebuffers();
+        createCommandBuffers();
+    }
+
     void createSemaphores() {
         VkSemaphoreCreateInfo semaphoreInfo = {};
         semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -259,6 +280,10 @@ private:
     }
 
     void createCommandBuffers() {
+        if (commandBuffers.size() > 0) {
+            vkFreeCommandBuffers(device, commandPool, commandBuffers.size(), commandBuffers.data());
+        }
+
         commandBuffers.resize(swapChainFramebuffers.size());
 
         VkCommandBufferAllocateInfo allocInfo = {};
@@ -614,9 +639,14 @@ private:
         createInfo.clipped = VK_TRUE;
         createInfo.oldSwapchain = VK_NULL_HANDLE;
 
-        if (VK_SUCCESS != vkCreateSwapchainKHR(device, &createInfo, nullptr, swapChain.replace())) {
+        VkSwapchainKHR oldSwapChain = swapChain;
+        createInfo.oldSwapchain = oldSwapChain;
+
+        VkSwapchainKHR newSwapChain;
+        if (VK_SUCCESS != vkCreateSwapchainKHR(device, &createInfo, nullptr, &newSwapChain)) {
             throw std::runtime_error("failed to create swap chain");
         }
+        swapChain = newSwapChain;
 
         // The implementation is allowed to create more images than we requested
         // in createInfo.minImageCount, so we must query image count explicitly again
@@ -746,7 +776,9 @@ private:
         if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
             return capabilities.currentExtent;
         } else {
-            VkExtent2D actualExtent = {WIDTH, HEIGHT};
+            int width, height;
+            glfwGetWindowSize(window, &width, &height);
+            VkExtent2D actualExtent = {width, height};
 
             actualExtent.width = std::max(capabilities.minImageExtent.width,
                                           std::min(capabilities.maxImageExtent.width,
@@ -937,8 +969,14 @@ private:
 
     void drawFrame() {
         uint32_t imageIndex;
-        vkAcquireNextImageKHR(device, swapChain, std::numeric_limits<uint64_t>::max(),
-                              imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+        VkResult result = vkAcquireNextImageKHR(device, swapChain, std::numeric_limits<uint64_t>::max(),
+                                                imageAvailableSemaphore, VK_NULL_HANDLE, &imageIndex);
+        if (VK_ERROR_OUT_OF_DATE_KHR == result) {
+            recreateSwapChain();
+            return;
+        } else if (VK_SUCCESS != result && VK_SUBOPTIMAL_KHR != result) {
+            throw std::runtime_error("failed to acquire swap chain image");
+        }
         VkSubmitInfo submitInfo = {};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 
@@ -972,7 +1010,12 @@ private:
         presentInfo.pImageIndices = &imageIndex;
         presentInfo.pResults = nullptr;
 
-        vkQueuePresentKHR(presentQueue, &presentInfo);
+        result = vkQueuePresentKHR(presentQueue, &presentInfo);
+        if (VK_ERROR_OUT_OF_DATE_KHR == result || VK_SUBOPTIMAL_KHR == result) {
+            recreateSwapChain();
+        } else if (result != VK_SUCCESS) {
+            throw std::runtime_error("failed to present swap chain image");
+        }
     }
 
 private:
