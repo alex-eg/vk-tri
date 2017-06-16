@@ -5,7 +5,9 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/vec4.hpp>
 #include <glm/glm.hpp>
+#include <glm/ext.hpp>
 #include <glm/mat4x4.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <iostream>
 #include <stdexcept>
@@ -17,6 +19,7 @@
 #include <map>
 #include <algorithm>
 #include <fstream>
+#include <chrono>
 
 const int WIDTH = 800;
 const int HEIGHT = 600;
@@ -117,7 +120,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 }
 
 struct Vertex {
-    glm::vec2 pos;
+    glm::vec3 pos;
     glm::vec3 color;
 
     static VkVertexInputBindingDescription getBindingDescription() {
@@ -135,7 +138,7 @@ struct Vertex {
 
         attributeDescriptions[0].binding = 0;
         attributeDescriptions[0].location = 0;
-        attributeDescriptions[0].format = VK_FORMAT_R32G32_SFLOAT;
+        attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
         attributeDescriptions[0].offset = offsetof(Vertex, pos);
 
         attributeDescriptions[1].binding = 0;
@@ -147,15 +150,26 @@ struct Vertex {
     }
 };
 
+struct UniformBufferObject {
+    glm::mat4 model;
+    glm::mat4 view;
+    glm::mat4 proj;
+};
+
 const std::vector<Vertex> vertices {
-    {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-    {{-0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
-    {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-    {{0.5f, -0.5f}, {0.0f, 1.0f, 1.0f}}
+    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{-0.5f, 0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}},
+    {{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 1.0f}},
+    {{-0.5f, -0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}},
+    {{-0.5f, 0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+    {{0.5f, 0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+    {{0.5f, -0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}}
 };
 
 const std::vector<uint16_t> indices {
-    0, 2, 1, 0, 3, 2
+    0, 2, 1, 0, 3, 2,
+    4, 6, 5, 4, 7, 6,
 };
 
 template <typename T> class VDeleter {
@@ -293,13 +307,93 @@ private:
         createSwapChain();
         createImageViews();
         createRenderPass();
+        createDescriptorSetLayout();
         createGraphicsPipeline();
         createFramebuffers();
         createCommandPool();
         createVertexBuffer();
         createIndexBuffer();
+        createUniformBuffer();
+        createDescriptorPool();
+        createDescriptorSet();
         createCommandBuffers();
         createSemaphores();
+    }
+
+    void createUniformBuffer() {
+        VkDeviceSize size = sizeof(UniformBufferObject);
+        createBuffer(size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                     uniformBuffer.replace(),
+                     uniformBufferMemory.replace());
+    }
+
+    void createDescriptorPool() {
+        VkDescriptorPoolSize ps {};
+        ps.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        ps.descriptorCount = 1;
+
+        VkDescriptorPoolCreateInfo pi {};
+        pi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pi.poolSizeCount = 1;
+        pi.pPoolSizes = &ps;
+        pi.maxSets = 1;
+
+        if (vkCreateDescriptorPool(device, &pi, nullptr, descriptorPool.replace())
+            != VK_SUCCESS) {
+            throw std::runtime_error("failed to create descriptor pool");
+        }
+    }
+
+    void createDescriptorSet() {
+        VkDescriptorSetLayout lo[] {descriptorSetLayout};
+        VkDescriptorSetAllocateInfo i {};
+        i.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        i.descriptorPool = descriptorPool;
+        i.descriptorSetCount = 1;
+        i.pSetLayouts = lo;
+
+        if (vkAllocateDescriptorSets(device, &i, &descriptorSet) != VK_SUCCESS) {
+            throw std::runtime_error("failed to allocate descriptor set");
+        }
+
+        VkDescriptorBufferInfo bi {};
+        bi.buffer = uniformBuffer;
+        bi.offset = 0;
+        bi.range = sizeof(UniformBufferObject);
+
+        VkWriteDescriptorSet descWrite {};
+        descWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descWrite.dstSet = descriptorSet;
+        descWrite.dstBinding = 0;
+        descWrite.dstArrayElement = 0;
+        descWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        descWrite.descriptorCount = 1;
+
+        descWrite.pBufferInfo = &bi;
+
+        vkUpdateDescriptorSets(device, 1, &descWrite, 0, nullptr);
+    }
+
+    void createDescriptorSetLayout() {
+        VkDescriptorSetLayoutBinding lb {};
+        lb.binding = 0;
+        lb.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        lb.descriptorCount = 1;
+
+        lb.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        lb.pImmutableSamplers = nullptr;
+
+        VkDescriptorSetLayoutCreateInfo i {};
+        i.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        i.bindingCount = 1;
+        i.pBindings = &lb;
+
+        if (vkCreateDescriptorSetLayout(device, &i, nullptr, descriptorSetLayout.replace())
+            != VK_SUCCESS) {
+            throw std::runtime_error("failed to create descriptor set layout");
+        }
+
     }
 
     uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
@@ -479,7 +573,7 @@ private:
             renderPassInfo.renderArea.offset = {0, 0};
             renderPassInfo.renderArea.extent = swapChainExtent;
 
-            VkClearValue clearColor = {0.0f, 0.0f, 0.0f, 1.0f};
+            VkClearValue clearColor = {0.0f, 0.1f, 0.0f, 1.0f};
             renderPassInfo.clearValueCount = 1;
             renderPassInfo.pClearValues = &clearColor;
 
@@ -490,6 +584,10 @@ private:
             VkDeviceSize offsets[] = {0};
             vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffers, offsets);
             vkCmdBindIndexBuffer(commandBuffers[i], indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+            vkCmdBindDescriptorSets(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipelineLayout, 0, 1,
+                                    &descriptorSet,
+                                    0, nullptr);
 
             vkCmdDrawIndexed(commandBuffers[i], static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
             vkCmdEndRenderPass(commandBuffers[i]);
@@ -649,7 +747,7 @@ private:
         rasterizerInfo.polygonMode = VK_POLYGON_MODE_FILL;
         rasterizerInfo.lineWidth = 1.0f;
         rasterizerInfo.cullMode = VK_CULL_MODE_BACK_BIT;
-        rasterizerInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        rasterizerInfo.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
         rasterizerInfo.depthBiasEnable = VK_FALSE;
         rasterizerInfo.depthBiasConstantFactor = 0.0f;
         rasterizerInfo.depthBiasClamp = 0.0f;
@@ -691,8 +789,8 @@ private:
 
         VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
         pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutInfo.setLayoutCount = 0;
-        pipelineLayoutInfo.pSetLayouts = nullptr;
+        pipelineLayoutInfo.setLayoutCount = 1;
+        pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
         pipelineLayoutInfo.pushConstantRangeCount = 0;
         pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
@@ -1133,6 +1231,7 @@ private:
     void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
+            updateUniformBuffer();
             drawFrame();
         }
 
@@ -1141,6 +1240,32 @@ private:
         glfwDestroyWindow(window);
 
         glfwTerminate();
+    }
+
+    void updateUniformBuffer() {
+        static auto startTime = std::chrono::high_resolution_clock::now();
+
+        auto currentTime = std::chrono::high_resolution_clock::now();
+        float time = std::chrono::duration_cast<std::chrono::milliseconds>
+            (currentTime - startTime).count() / 1000.0f;
+
+        UniformBufferObject ubo {};
+        ubo.model = glm::rotate(glm::mat4(), time * glm::radians(60.0f),
+                                glm::vec3(0.0f, 0.0f, 1.0f));
+
+        ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f),
+                               glm::vec3(0.0f, 0.0f, 0.0f),
+                               glm::vec3(0.0f, 0.0f, -1.0f));
+        ubo.proj = glm::perspective(glm::radians(45.0f),
+                                    swapChainExtent.width / static_cast<float>(swapChainExtent.height),
+                                    0.1f,
+                                    50.0f);
+        ubo.proj[1][1] *= -1;
+
+        void *data;
+        vkMapMemory(device, uniformBufferMemory, 0, sizeof(ubo), 0, &data);
+        memcpy(data, &ubo, sizeof(ubo));
+        vkUnmapMemory(device, uniformBufferMemory);
     }
 
     void drawFrame() {
@@ -1210,6 +1335,10 @@ private:
     VkExtent2D swapChainExtent;
     std::vector<VDeleter<VkImageView>> swapChainImageViews;
 
+    VDeleter<VkDescriptorSetLayout> descriptorSetLayout {device, vkDestroyDescriptorSetLayout};
+    VDeleter<VkDescriptorPool> descriptorPool {device, vkDestroyDescriptorPool};
+    VkDescriptorSet descriptorSet;
+
     VDeleter<VkPipelineLayout> pipelineLayout {device, vkDestroyPipelineLayout};
     VDeleter<VkRenderPass> renderPass {device, vkDestroyRenderPass};
     VDeleter<VkPipeline> graphicsPipeline {device, vkDestroyPipeline};
@@ -1226,6 +1355,8 @@ private:
     VDeleter<VkDeviceMemory> vertexBufferMemory {device, vkFreeMemory};
     VDeleter<VkBuffer> indexBuffer {device, vkDestroyBuffer};
     VDeleter<VkDeviceMemory> indexBufferMemory {device, vkFreeMemory};
+    VDeleter<VkBuffer> uniformBuffer {device, vkDestroyBuffer};
+    VDeleter<VkDeviceMemory> uniformBufferMemory {device, vkFreeMemory};
 
     GLFWwindow *window;
 };
