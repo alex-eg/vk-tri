@@ -167,14 +167,14 @@ struct UniformBufferObject {
 };
 
 const std::vector<Vertex> vertices {
-    {{-0.5f, -0.5f, -0.5f}, {0.3f, 0.3f, 0.3f}, {1.0f, 1.0f}},
-    {{-0.5f, 0.5f, -0.5f}, {0.3f, 0.3f, 0.3f}, {0.0f, 1.0f}},
-    {{0.5f, 0.5f, -0.5f}, {0.3f, 0.3f, 0.3f}, {1.0f, 0.0f}},
-    {{0.5f, -0.5f, -0.5f}, {0.3f, 0.3f, 0.3f}, {0.0f, 0.0f}},
+    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.5f, 0.5f}, {0.0f, 1.0f}},
+    {{-0.5f, 0.5f, -0.5f}, {1.0f, 0.5f, 0.7f}, {1.0f, 1.0f}},
+    {{0.5f, 0.5f, -0.5f}, {1.0f, 0.5f, 0.5f}, {2.0f, 1.0f}},
+    {{0.5f, -0.5f, -0.5f}, {1.0f, 0.5f, 0.7f}, {1.0f, 1.0f}},
     {{-0.5f, -0.5f, 0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
     {{-0.5f, 0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-    {{0.5f, 0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-    {{0.5f, -0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
+    {{0.5f, 0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {2.0f, 0.0f}},
+    {{0.5f, -0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}, {1.0f, 0.0f}}
 };
 
 const std::vector<uint16_t> indices {
@@ -343,9 +343,9 @@ private:
         samplerInfo.magFilter = VK_FILTER_LINEAR;
         samplerInfo.minFilter = VK_FILTER_LINEAR;
 
-        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
         samplerInfo.anisotropyEnable = VK_TRUE;
         samplerInfo.maxAnisotropy = 16;
         samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
@@ -822,7 +822,7 @@ private:
             renderPassInfo.renderArea.offset = {0, 0};
             renderPassInfo.renderArea.extent = swapChainExtent;
 
-            VkClearValue clearColor = {0.0f, 0.1f, 0.0f, 1.0f};
+            VkClearValue clearColor = {0.6f, 0.4f, 0.5f, 1.0f};
             renderPassInfo.clearValueCount = 1;
             renderPassInfo.pClearValues = &clearColor;
 
@@ -1488,8 +1488,8 @@ private:
         ubo.model = glm::rotate(glm::mat4(), time * glm::radians(60.0f),
                                 glm::vec3(0.0f, 0.0f, 1.0f));
 
-        ubo.view = glm::lookAt(glm::vec3(1.1f, 1.1f, 1.7f),
-                               glm::vec3(-0.1f, -0.1f, -0.1f),
+        ubo.view = glm::lookAt(glm::vec3(1.3f, 1.3f, 0.8f),
+                               glm::vec3(-0.1f, -0.1f, -0.2f),
                                glm::vec3(0.0f, 0.0f, -1.0f));
         ubo.proj = glm::perspective(glm::radians(45.0f),
                                     swapChainExtent.width / static_cast<float>(swapChainExtent.height),
