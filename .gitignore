@@ -1,3 +1,4 @@
 frag.spv
 vert.spv
 vktest
+*.o
